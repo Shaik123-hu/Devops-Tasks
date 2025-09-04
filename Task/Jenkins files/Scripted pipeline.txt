@@ -1,0 +1,130 @@
+node {
+    // Define environment variables
+    def NEXUS_VERSION = "nexus3"
+    def NEXUS_PROTOCOL = "http"
+    def NEXUS_URL = "44.206.236.146:8081/"
+    def NEXUS_REPOSITORY = "SimpleCustomerApp"
+    def NEXUS_CREDENTIAL_ID = "nexus_keygen"
+    
+    // Define tools
+    def mvnHome = tool 'MVN_HOME'
+    def scannerHome = tool 'sonar_scanner'
+
+    try {
+        stage('Clone Code') {
+            git 'https://github.com/Shaik123-hu/sabear_simplecutomerapp.git'
+        }
+
+        stage('Maven Build') {
+            sh "${mvnHome}/bin/mvn -Dmaven.test.failure.ignore=true clean install"
+        }
+
+        stage('SonarCloud') {
+            withSonarQubeEnv('sonarqube_server') {
+                // Define directories
+                def sourceDir = "${WORKSPACE}/src/main/java"
+                def webappDir = "${WORKSPACE}/src/main/webapp"
+                def binaryDir = "${WORKSPACE}/target/classes"
+                def reportDir = "${WORKSPACE}/target/surefire-reports"
+
+                // Determine source directories to analyze
+                def sonarSources = []
+                if (fileExists(sourceDir)) {
+                    sonarSources.add(sourceDir)
+                }
+                if (fileExists(webappDir)) {
+                    sonarSources.add(webappDir)
+                }
+                if (sonarSources.isEmpty()) {
+                    echo "Warning: No source directories (src/main/java or src/main/webapp) found. Skipping SonarQube analysis."
+                    return
+                }
+
+                // Build SonarQube command
+                def sonarCommand = """
+                    ${scannerHome}/bin/sonar-scanner \
+                    -Dsonar.projectKey=Ncodeit \
+                    -Dsonar.projectName=Ncodeit \
+                    -Dsonar.projectVersion=2.0 \
+                    -Dsonar.sources="${sonarSources.join(',')}" \
+                    -Dsonar.junit.reportsPath="${reportDir}" \
+                    -Dsonar.verbose=true
+                """
+
+                // Add binaries only if target/classes exists
+                if (fileExists(binaryDir)) {
+                    sonarCommand += " -Dsonar.java.binaries=\"${binaryDir}\""
+                } else {
+                    echo "Warning: Binary directory ${binaryDir} does not exist. Skipping Java binaries analysis."
+                }
+
+                // Execute SonarQube analysis
+                sh sonarCommand
+            }
+        }
+
+        stage('Publish to Nexus') {
+            def pom = readMavenPom file: 'pom.xml'
+            def groupId = pom.groupId
+            def artifactId = pom.artifactId
+            // Use a fallback version if ${BUILD_NUMBER} causes issues
+            def version = pom.version.replace('${BUILD_NUMBER}', env.BUILD_NUMBER ?: '3')
+            def packaging = pom.packaging
+
+            def filesByGlob = findFiles(glob: "target/*.${packaging}")
+            if (filesByGlob.length == 0) {
+                error "*** No artifact found in target/*.${packaging}"
+            }
+
+            def artifactPath = filesByGlob[0].path
+            if (fileExists(artifactPath)) {
+                echo "*** Uploading ${artifactPath} to Nexus (group: ${groupId}, version: ${version}, packaging: ${packaging})"
+                
+                nexusArtifactUploader(
+                    nexusVersion: NEXUS_VERSION,
+                    protocol: NEXUS_PROTOCOL,
+                    nexusUrl: NEXUS_URL,
+                    groupId: groupId,
+                    version: version,
+                    repository: NEXUS_REPOSITORY,
+                    credentialsId: NEXUS_CREDENTIAL_ID,
+                    artifacts: [
+                        [artifactId: artifactId, classifier: '', file: artifactPath, type: packaging],
+                        [artifactId: artifactId, classifier: '', file: 'pom.xml', type: 'pom']
+                    ]
+                )
+            } else {
+                error "*** File: ${artifactPath}, could not be found"
+            }
+        }
+
+        stage('Deploy to Tomcat') {
+            withCredentials([usernamePassword(credentialsId: 'tomcat', usernameVariable: 'TOMCAT_USER', passwordVariable: 'TOMCAT_PASS')]) {
+                def warFile = sh(script: "ls target/*.war | head -n 1", returnStdout: true).trim()
+                echo "Deploying ${warFile} to Tomcat at context path /SimpleCustomerApp..."
+                sh """
+                    curl -u ${TOMCAT_USER}:${TOMCAT_PASS} \
+                         -T ${warFile} \
+                         "http://52.23.219.234:8080/manager/text/deploy?path=/SimpleCustomerApp&update=true"
+                """
+            }
+        }
+
+        // Success notification
+        slackSend(
+            channel: '#jenkins-integration',
+            color: 'good',
+            message: "Scripted pipeline for Simple Customer App has been successfully deployed in Tomcat :white_check_mark: by Yunus for Job{env.JOB_NAME} [${env.BUILD_NUMBER}]",
+            tokenCredentialId: 'Slackid'
+        )
+    } catch (e) {
+        // Failure notification
+        slackSend(
+            channel: '#jenkins-integration',
+            color: 'danger',
+            message: "❌ Build/Deploy Failed: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+            tokenCredentialId: 'Slackid'
+        )
+        throw e
+    }
+}
