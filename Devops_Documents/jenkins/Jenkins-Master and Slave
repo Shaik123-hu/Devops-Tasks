@@ -1,0 +1,32 @@
+Steps to be done on slave
+===================
+Login to slave machine..
+switch to root user
+install jdk 11 (amazon-linux-extras install java-openjdk11)
+Create ssh-keygen
+cat id_rsa.pub > authorized_keys
+chmod 700 authorized_keys
+Steps to be done on master machine:
+===========================
+Login to master machine
+switch to root user.
+mkdir -p /var/lib/jenkins/.ssh
+cd /var/lib/jenkins/.ssh
+ssh-keyscan -H SLAVE-NODE-IP-OR-HOSTNAME >>/var/lib/jenkins/.ssh/known_hosts
+# ssh-keyscan -H 172.31.38.42 >>/var/lib/jenkins/.ssh/known_hosts
+chown jenkins:jenkins known_hosts
+#we need to change the owner as we ran ssh-keyscan command using “root” user.
+# default user of Jenkins will be “jenkins”
+chmod 700 known_hosts
+# DOne !!
+Steps to be done on jenkins GUI:
+========================
+Go to manage jenkins
+open manage node
+under launch method select "Launch via SSh"
+Host "public ip of slave"
+creditals: select user with private key
+enter ec2-user as name and paste the pem key.
+host key verification startegy to be selected
+save..
+we are good with the master and slave configuration

@@ -1,0 +1,27 @@
+#!/bin/bash
+
+#set -x
+INSTANCE_ID=$(/opt/aws/bin/ec2-metadata -i | cut -d " " -f2)
+
+checkTomcatStatus(){
+        counter=0
+        ps x | grep /opt/apache-tomcat-9.0.65/ | grep -v grep |    #Need to change tomcat version
+        while read -r LINE
+        do
+                read PROCESS_ID <<< $LINE
+                counter=$((counter+1))
+                echo $counter
+        done
+}
+
+i=$(checkTomcatStatus)
+#echo $i
+
+if [ "$i" == "" ]
+then
+        aws --region ap-south-1 cloudwatch put-metric-data --metric-name tomcat --value 0 --namespace tomcat --dimensions InstanceId=$INSTANCE_ID
+else
+        aws --region ap-south-1 cloudwatch put-metric-data --metric-name tomcat --value 1 --namespace tomcat --dimensions InstanceId=$INSTANCE_ID
+fi
+
+# Need to change the region

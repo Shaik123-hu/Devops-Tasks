@@ -1,0 +1,8 @@
+How can a user himself create account in jenkins?
+-> go to config.xm in /var/lib/jenkins
+-> change to false from true (<disableSignup>false</disableSignup>)
+
+How to restrict users from full access?
+-> go to Configure Global Security
+-> In "Project-based Matrix Authorization Strategy"
+give limited access to Read,update and view jobs.
